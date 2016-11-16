@@ -53,7 +53,17 @@ void BestMove(const int cities, float px[], float py[], long* minchange)
 static __global__
 void ApplyMove(const long minchange, float px[], float py[])
 {
-  ... //todo: apply the best move using just a single thread
+  //todo: apply the best move using just a single thread
+  int i = (minchange >> 16) & 0xffff;
+  int j = minchange & 0xffff;
+  i++;
+  while (i < j) {
+    float t;
+    t = px[i];  px[i] = px[j];  px[j] = t;
+    t = py[i];  py[i] = py[j];  py[j] = t;
+    i++;
+    j--;
+  }
 }
 
 static int TwoOpt(int cities, float px[], float py[], int& climbs)
@@ -70,11 +80,11 @@ static int TwoOpt(int cities, float px[], float py[], int& climbs)
   if (cudaSuccess != cudaMalloc((void **)&px_d, (cities + 1) * sizeof(float))) {fprintf(stderr, "could not allocate px\n"); exit(-1);}
   //todo: allocate the py array on the GPU
   if (cudaSuccess != cudaMalloc((void **)&py_d, (cities + 1) * sizeof(float))) {fprintf(stderr, "could not allocate px\n"); exit(-1);}
-  if (cudaSuccess != cudaMalloc((void **)&minchange_d, sizeof(long))) {fprintf(stderr, "could not allocate minchange\n"); exit(-1);}
+  if (cudaSuccess != cudaMalloc((void **)&minchange_d, sizeof(long))) {fprintf(stderr, "could not allocate minchange_d\n"); exit(-1);}
 
   //todo: copy the px and py arrays to the GPU
-    if (cudaSuccess != cudaMemcpy(px_d, &px, (cities + 1) * sizeof(float), cudaMemcpyHostToDevice)) {fprintf(stderr, "minchange copying to device failed\n"); exit(-1);}
-    if (cudaSuccess != cudaMemcpy(py_d, &py, (cities + 1) * sizeof(long), cudaMemcpyHostToDevice)) {fprintf(stderr, "minchange copying to device failed\n"); exit(-1);}
+  if (cudaSuccess != cudaMemcpy(px_d, &px, (cities + 1) * sizeof(float), cudaMemcpyHostToDevice)) {fprintf(stderr, "px copying to device failed\n"); exit(-1);}
+  if (cudaSuccess != cudaMemcpy(py_d, &py, (cities + 1) * sizeof(float), cudaMemcpyHostToDevice)) {fprintf(stderr, "py copying to device failed\n"); exit(-1);}
   
 
   // repeat until no improvement
@@ -87,18 +97,25 @@ static int TwoOpt(int cities, float px[], float py[], int& climbs)
     minchange = 0;
     if (cudaSuccess != cudaMemcpy(minchange_d, &minchange, sizeof(long), cudaMemcpyHostToDevice)) {fprintf(stderr, "minchange copying to device failed\n"); exit(-1);}
     BestMove<<<(cities * cities + ThreadsPerBlock - 1) / ThreadsPerBlock, ThreadsPerBlock>>>(cities, px_d, py_d, minchange_d);
-    ... //todo: copy minchange back to the CPU
-
+    //todo: copy minchange back to the CPU
+    if (cudaSuccess != cudaMemcpy(minchange, minchange_d, sizeof(long), cudaMemcpyHostToDevice)) {fprintf(stderr, "minchange copying to Host failed\n"); exit(-1);}
     // apply move if it shortens the tour
     if (minchange < 0) {
-      ... //todo: call the ApplyMove kernel here
+      //todo: call the ApplyMove kernel here
+      ApplyMove<<<(cities * cities + ThreadsPerBlock - 1) / ThreadsPerBlock, ThreadsPerBlock>>>(minchange, px, py)
+
     }
   } while (minchange < 0);
   climbs = iter;
 
-  ... //todo: copy the px and py arrays back to the CPU
+  //todo: copy the px and py arrays back to the CPU
+  if (cudaSuccess != cudaMemcpy(px, px_d, (cities + 1) * sizeof(float), cudaMemcpyDeviceToHost)) {fprintf(stderr, "px_d copying to Host failed\n"); exit(-1);}
+  if (cudaSuccess != cudaMemcpy(py, py_d, (cities + 1) * sizeof(float), cudaMemcpyDeviceToHost)) {fprintf(stderr, "px_d copying to Host failed\n"); exit(-1);}
 
-  ... //todo: free all dynamically allocated GPU memory
+  //todo: free all dynamically allocated GPU memory
+  cudaFree(px_d);
+  cudaFree(py_d);
+  cudaFree(minchange_d);
 
   // compute tour length
   int len = 0;
